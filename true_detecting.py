@@ -12,7 +12,6 @@ from files import (
     expand_path,
     make_dirs_for_file)
 from constants import MEDSCONF
-from realistic_galaxying import init_descwl_catalog
 
 logger = logging.getLogger(__name__)
 

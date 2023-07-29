@@ -20,9 +20,9 @@ from constants import MEDSCONF, R_SFD98
 from truthing import make_coadd_grid_radec, make_coadd_random_radec
 from sky_bounding import get_rough_sky_bounds, radec_to_uv
 from wcsing import get_esutil_wcs, get_galsim_wcs
-from galsiming import render_sources_for_image
+from galsiming import render_sources_for_image, Our_params
 from psf_wrapper import PSFWrapper
-from realistic_galaxying import init_descwl_catalog, get_descwl_galaxy, init_cosmos_catalog, get_cosmos_galaxy
+from realistic_galaxying import init_desdf_catalog, get_desdf_galaxy
 from realistic_starsing import init_lsst_starsim_catalog
 
 logger = logging.getLogger(__name__)
@@ -147,8 +147,6 @@ class End2EndSimulation(object):
                     image_path=se_info['image_path'],
                     image_ext=se_info['image_ext']),
                 psf=self._make_psf_wrapper(se_info=se_info),
-                g1=self.gal_kws['g1'],
-                g2=self.gal_kws['g2'],
                 gal_mag = self.gal_kws['gal_mag'],
                 gal_source = self.gal_kws['gal_source'],
                 galsource_rng = self.galsource_rng,
@@ -247,28 +245,16 @@ class End2EndSimulation(object):
         #or draw from poisson
         print(self.gal_kws)
         print(self.psf_kws)
-        if self.gal_kws['ngal_type'] == 'true':
-            n_grid = self.gal_kws['n_grid']
-            n_gal  = n_grid**2
+
+        n_grid = self.gal_kws['n_grid']
+        n_gal  = n_grid**2
             
-        elif self.gal_kws['ngal_type'] == 'poisson':
-            n_gal  = self.truth_cat_rng.poisson(lam=self.gal_kws['n_grid']**2)
-            n_grid = int(np.sqrt(n_gal))
-        
-        else:
-            raise ValueError("Invalid option for `ngal_type`. Use 'true' or 'poisson'")
-        
-        
         #Set what type of grid we use
         if self.gal_kws['truth_type'] in ['grid', 'grid-truedet']:
             ra, dec, x, y = make_coadd_grid_radec(
                 rng=self.truth_cat_rng, coadd_wcs=coadd_wcs,
                 return_xy=True, n_grid=n_grid)
             
-        elif self.gal_kws['truth_type'] in ['random', 'random-truedet']:
-            ra, dec, x, y = make_coadd_random_radec(
-                rng=self.truth_cat_rng, coadd_wcs=coadd_wcs,
-                return_xy=True, n_gal=n_gal)
         else:
             raise ValueError("Invalid option for `truth_type`. Use 'grid', 'random', 'grid-truedet', or 'random-truedet'.")
             
@@ -293,27 +279,14 @@ class End2EndSimulation(object):
             for b in self.bands: truth_cat['A%s' % b] = R_SFD98[b] * EBV[inds]
             
         
-        if self.gal_kws['gal_source'] in ['varsize', 'varang', 'varsizeang']:
-            truth_cat['ind']     = self.galsource_rng.randint(low=0, high=len(self.simulated_catalog), size=len(ra))
-            truth_cat['size']    = self.simulated_catalog['size'][truth_cat['ind']] #r = sqrt(a*b), q = b/a
-            truth_cat['a_world'] = truth_cat['size']/np.sqrt(self.simulated_catalog['q'][truth_cat['ind']]) # a = r/sqrt(q)
-            truth_cat['b_world'] = truth_cat['size']*np.sqrt(self.simulated_catalog['q'][truth_cat['ind']]) # b = r*sqrt(q)
-            
-        elif self.gal_kws['gal_source'] == 'descwl':
-            truth_cat['ind']     = self.galsource_rng.randint(low=0, high=len(self.simulated_catalog.cat), size=len(ra))
-            truth_cat['a_world'] = self.simulated_catalog.cat['a_d'][truth_cat['ind']]
-            truth_cat['b_world'] = self.simulated_catalog.cat['b_d'][truth_cat['ind']]
-            truth_cat['size']    = np.sqrt(truth_cat['a_world']*truth_cat['b_world'])
-            
-        elif self.gal_kws['gal_source'] in ['cosmos', 'simplecosmos']:
-            g1 = self.simulated_catalog.cat['bdf_g1'][truth_cat['ind']]
-            g2 = self.simulated_catalog.cat['bdf_g2'][truth_cat['ind']]
-            q  = np.sqrt(g1**2 + g2**2)
-            
-            truth_cat['ind']     = self.galsource_rng.randint(low=0, high=len(self.simulated_catalog.cat), size=len(ra))
-            truth_cat['a_world'] = 1
-            truth_cat['b_world'] = q
-            truth_cat['size']    = self.simulated_catalog.cat['bdf_hlr'][truth_cat['ind']]
+        g1 = self.simulated_catalog.cat['BDF_G1'][truth_cat['ind']]
+        g2 = self.simulated_catalog.cat['BDF_G2'][truth_cat['ind']]
+        q  = np.sqrt(g1**2 + g2**2)
+
+        truth_cat['ind']     = self.galsource_rng.randint(low=0, high=len(self.simulated_catalog.cat), size=len(ra))
+        truth_cat['a_world'] = 1
+        truth_cat['b_world'] = q
+        truth_cat['size']    = self.simulated_catalog.cat['BDF_HLR'][truth_cat['ind']]
             
 
         truth_cat_path = get_truth_catalog_path(
@@ -330,73 +303,20 @@ class End2EndSimulation(object):
         
         """Makes sim catalog"""
         
-        if self.gal_kws['gal_source'] in ['simple', 'simpleElliptical']:
-            self.simulated_catalog = None
-        
-        #Same catalog generation if we want to vary size or angle
-        elif self.gal_kws['gal_source'] in ['simplecosmos']:
-            self.simulated_catalog = init_cosmos_catalog(rng = self.galsource_rng)
+        self.simulated_catalog = init_desdf_catalog(rng = self.galsource_rng)
             
-            Mask = ((self.simulated_catalog.cat['mag_i'] > self.gal_kws['mag_min']) & 
-                    (self.simulated_catalog.cat['mag_i'] < self.gal_kws['mag_max']))
-            
-            self.simulated_catalog = self.simulated_catalog._replace(cat = self.simulated_catalog.cat[Mask])
-            
-            self.simulated_catalog.cat['bdf_fracdev'] = 0
-            self.simulated_catalog.cat['bdf_hlr']     = np.clip(self.simulated_catalog.cat['bdf_hlr'],
-                                                                a_min = self.gal_kws['size_min'],
-                                                                a_max = self.gal_kws['size_max'])
-            
-            #Just to make them circular
-            if self.gal_kws['circular']:
-                self.simulated_catalog.cat['bdf_g1'] = 0  
-                self.simulated_catalog.cat['bdf_g2'] = 0
+        mag_i = 30 - 2.5*np.log10(self.simulated_catalog.cat['FLUX_I'])
+        hlr   = self.simulated_catalog.cat['BDF_HLR']
+        Mask  = ((mag_i > self.gal_kws['mag_min']) &  (mag_i < self.gal_kws['mag_max']) &
+                 (hlr > self.gal_kws['size_min'])  &  (hlr < self.gal_kws['size_max'])
+                )
 
-        elif self.gal_kws['gal_source'] in ['varsize', 'varang', 'varsizeang']:
-            
-            #Simulate 500,000 objects. We won't use that many per tile.
-            #Hardcoding number because this happens before truth cat generation
-            #so we dont know how many objects are in this coadd
-            cat = np.zeros(500_000, dtype=[('size', 'f8'), ('q', 'f8'), ('ang_rot', 'f8')])
-            
-            cat['size']    = self.galsource_rng.uniform(self.gal_kws['size_min'], self.gal_kws['size_max'], len(cat)) #in arcsec
-            cat['q']       = self.galsource_rng.uniform(self.gal_kws['q_min'],    self.gal_kws['q_max'],    len(cat)) #dimensionless
-            cat['ang_rot'] = self.galsource_rng.uniform(0, 360, len(cat)) #in degrees
+        self.simulated_catalog = self.simulated_catalog._replace(cat = self.simulated_catalog.cat[Mask])
 
-            if self.gal_kws['circular']:
-                cat['q'] = 1
-                
-            self.simulated_catalog = cat
-            
-        elif self.gal_kws['gal_source'] == 'descwl':
-            self.simulated_catalog = init_descwl_catalog(survey_bands = "des-riz", rng = self.galsource_rng)
-
-            if self.gal_kws['circular']:
-                #Temporarily remove all ellipticity
-                self.simulated_catalog.cat['a_d'] = self.simulated_catalog.cat['a_d']
-                self.simulated_catalog.cat['b_d'] = self.simulated_catalog.cat['a_d']
-                self.simulated_catalog.cat['a_b'] = self.simulated_catalog.cat['a_b']
-                self.simulated_catalog.cat['b_b'] = self.simulated_catalog.cat['a_b']
-            
-        elif self.gal_kws['gal_source'] == 'cosmos':
-            self.simulated_catalog = init_cosmos_catalog(rng = self.galsource_rng)
-            
-            Mask = ((self.simulated_catalog.cat['mag_i'] > self.gal_kws['mag_min']) & 
-                    (self.simulated_catalog.cat['mag_i'] < self.gal_kws['mag_max']) &
-                    (self.simulated_catalog.cat['bdf_hlr'] > self.gal_kws['size_min']) & 
-                    (self.simulated_catalog.cat['bdf_hlr'] < self.gal_kws['size_max'])
-                   )
-            
-            #self.simulated_catalog.cat['bdf_hlr'] = np.clip(self.simulated_catalog.cat['bdf_hlr'],
-            #                                                a_min = self.gal_kws['size_min'],
-            #                                                a_max = self.gal_kws['size_max'])
-            
-            self.simulated_catalog = self.simulated_catalog._replace(cat = self.simulated_catalog.cat[Mask])
-
-            if self.gal_kws['circular']:
-                #Temporarily remove all ellipticity
-                self.simulated_catalog.cat['bdf_g1'] = 0
-                self.simulated_catalog.cat['bdf_g2'] = 0
+        if self.gal_kws['circular']:
+            #Temporarily remove all ellipticity
+            self.simulated_catalog.cat['BDF_G1'] = 0
+            self.simulated_catalog.cat['BDF_G2'] = 0
 
         return self.simulated_catalog
     
@@ -625,33 +545,17 @@ def _add_noise_mask_background(*, image, se_info, noise_seed, gal_kws):
     # first back to ADU units
     image /= se_info['scale']
 
-    # add the background
-    bkg = fitsio.read(se_info['bkg_path'], ext=se_info['bkg_ext'])
-    image += bkg
+    # take the original image and add the simulated + original images together
+    original_image = fitsio.read(se_info['image_path'], ext=se_info['image_ext'])
+    image += original_image
 
-    # now add noise
-    wgt = fitsio.read(se_info['weight_path'], ext=se_info['weight_ext'])
+    # now just read out these other images
+    # in practice we just read out --> copy to other location
+    # since balrog does not use wgt and bmask
+    bkg   = fitsio.read(se_info['bkg_path'], ext=se_info['bkg_ext'])
+    wgt   = fitsio.read(se_info['weight_path'], ext=se_info['weight_ext'])
     bmask = fitsio.read(se_info['bmask_path'], ext=se_info['bmask_ext'])
-    img_std = 1.0 / np.sqrt(np.median(wgt[bmask == 0]))
-    image += (noise_rng.normal(size=image.shape) * img_std)
-    wgt[:, :] = 1.0 / img_std**2
     
-    
-    if gal_kws['Mask'] == True:
-        
-        pass
-
-    #mask the image
-#         image[bmask.astype(bool)] = np.NaN
-#         wgt[bmask.astype(bool)]   = np.NaN
-        
-    elif gal_kws['Mask'] == False:
-        bmask = np.zeros_like(bmask)
-        
-    else:
-        raise ValueError("Unknown value %s for keyword {Mask}. Choose True or False"%str(self.gal_kws['Mask']))
-            
-
     return image, wgt, bkg, bmask
 
 
@@ -677,7 +581,6 @@ def _write_se_img_wgt_bkg(
             with fitsio.FITS(sf.path, mode='rw') as fits:
                 fits[se_info['image_ext']].write(image)
                 fits[se_info['weight_ext']].write(weight)
-#                 fits[se_info['bmask_ext']].write(np.zeros_like(image, dtype=np.int16))
                 fits[se_info['bmask_ext']].write(bmask)
 
     # get the background file path and write
@@ -716,13 +619,10 @@ class LazySourceCat(object):
         Returns the object to be rendered from the truth catalog at
         index `ind`.
     """
-    def __init__(self, *, truth_cat, wcs, psf, g1, g2, gal_mag, gal_source, band = None, galsource_rng = None, simulated_catalog = None):
+    def __init__(self, *, truth_cat, wcs, psf, gal_mag, gal_source, band = None, galsource_rng = None, simulated_catalog = None):
         self.truth_cat = truth_cat
         self.wcs = wcs
-        self.psf = psf
-        self.g1 = g1
-        self.g2 = g2
-        
+        self.psf = psf        
         
         self.gal_source = gal_source
         self.galsource_rng = galsource_rng
@@ -736,55 +636,15 @@ class LazySourceCat(object):
 
     def __call__(self, ind):
         pos = self.wcs.toImage(galsim.CelestialCoord(
-            ra=self.truth_cat['ra'][ind] * galsim.degrees,
-            dec=self.truth_cat['dec'][ind] * galsim.degrees))
+            ra  = self.truth_cat['ra'][ind]  * galsim.degrees,
+            dec = self.truth_cat['dec'][ind] * galsim.degrees))
         
         
-        if self.gal_source == 'simple':
-            obj = galsim.Exponential(half_light_radius=0.5)
-            
-        elif self.gal_source == 'simpleElliptical':
-            obj = galsim.Exponential(half_light_radius=0.5).shear(q = 0.75, beta = 30 * galsim.degrees)
-            
-        
-        elif self.gal_source == 'simplecosmos':
-            obj = get_cosmos_galaxy(cosmos_ind = self.truth_cat['ind'][ind],
-                                    rng  = self.galsource_rng, 
-                                    data = self.simulated_catalog,
-                                    band = self.band)
-            
-        elif self.gal_source == 'varsize':
-            rad = self.simulated_catalog['size'][self.truth_cat['ind'][ind]] #Get radius from catalog (in arcmin)
-            
-            obj = galsim.Exponential(half_light_radius=rad)
-            
-        elif self.gal_source == 'varang':
-            q   = self.simulated_catalog['q'][self.truth_cat['ind'][ind]] #Get ellipticity
-            rot = self.simulated_catalog['ang_rot'][self.truth_cat['ind'][ind]] #Get rotation of galaxy
-            
-            obj = galsim.Exponential(half_light_radius=0.5).shear(q = q, beta = rot * galsim.degrees)
-            
-        elif self.gal_source == 'varsizeang':
-            rad = self.simulated_catalog['size'][self.truth_cat['ind'][ind]] #Get radius from catalog (in arcmin)
-            q   = self.simulated_catalog['q'][self.truth_cat['ind'][ind]] #Get ellipticity
-            rot = self.simulated_catalog['ang_rot'][self.truth_cat['ind'][ind]] #Get rotation of galaxy
-            
-            #Take exponential profile, shear it to cause intrinsic ellipticity in direction given by rot
-            obj = galsim.Exponential(half_light_radius=rad).shear(q = q, beta = rot * galsim.degrees)
-            
-        elif self.gal_source == 'descwl':
-            
-            obj = get_descwl_galaxy(descwl_ind = self.truth_cat['ind'][ind],
-                                    rng  = self.galsource_rng, 
-                                    data = self.simulated_catalog)
-            
-        elif self.gal_source == 'cosmos':
-            
-            obj = get_cosmos_galaxy(cosmos_ind = self.truth_cat['ind'][ind],
-                                    rng  = self.galsource_rng, 
-                                    data = self.simulated_catalog,
-                                    band = self.band)
-            
+        obj = get_desdf_galaxy(desdf_ind = self.truth_cat['ind'][ind],
+                                rng  = self.galsource_rng, 
+                                data = self.simulated_catalog,
+                                band = self.band)
+
         if self.gal_mag != 'custom':
             normalized_flux = 10**((30 - self.gal_mag)/2.5)
             obj = obj.withFlux(normalized_flux)
@@ -794,11 +654,11 @@ class LazySourceCat(object):
         A_flux = 10**(-A_mag/2.5)
         obj    = obj.withScaledFlux(A_flux)
         
-        #Now shear + psf
-        obj = obj.shear(g1=self.g1, g2=self.g2)
+        #Now psf
         psf = self.psf.getPSF(image_pos=pos)
+        obj = galsim.Convolve([obj, psf], gsparams = Our_params)
         
-        return galsim.Convolve([obj, psf]), pos
+        return obj, pos
     
     
 class LazyStarSourceCat(object):
@@ -856,6 +716,6 @@ class LazyStarSourceCat(object):
         #No extinction correction since the catalog (LSST sim) already has this included
         
         #Just PSF since stars ARE the point source
-        obj = self.psf.getPSF(image_pos=pos).withFlux(normalized_flux)
+        obj = self.psf.getPSF(image_pos = pos).withFlux(normalized_flux)
         
         return obj, pos

@@ -3,6 +3,8 @@ import galsim
 import joblib
 
 
+Our_params = galsim.GSParams(maximum_fft_size = 16384)
+
 def render_sources_for_image(
         *, image_shape, wcs, draw_method, src_inds, src_func, n_jobs=None):
     """Render a list of sources for a single image.

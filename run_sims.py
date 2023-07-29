@@ -14,15 +14,9 @@ from srcextracting import MakeSrcExtractorCat
 from true_detecting import make_true_detections
 from medsing import make_meds_files
 from run_metacal import run_metacal
+from matching import match_catalogs
 from finalizing import finalize_files
 from initializing import initialize_files
-
-for lib in ['matts_misc.simple_des_y3_sims']:
-    lgr = logging.getLogger(lib)
-    hdr = logging.StreamHandler(sys.stdout)
-    hdr.setFormatter(logging.Formatter(logging.BASIC_FORMAT))
-    lgr.setLevel(logging.DEBUG)
-    lgr.addHandler(hdr)
 
 
 @click.group()
@@ -215,7 +209,27 @@ def metacal(tilename, bands, output_desdata, seed, metacal_config_file):
         seed=seed,
         mcal_config=mcal_config)
 
-    
+
+@cli.command()
+@click.option('--tilename', type=str, required=True,
+              help='the coadd tile to simulate')
+@click.option('--bands', type=str, required=True,
+              help=('a list of bands to simulate as '
+                    'a concatnated string (e.g., "riz")'))
+@click.option('--output-desdata', type=str, required=True,
+              help='the output DESDATA directory')
+@click.option('--config-file', type=str, required=True,
+              help='the YAML config file')
+def match(tilename, bands, output_desdata, config_file):
+    with open(config_file, 'r') as fp:
+        config = yaml.load(fp, Loader=yaml.Loader)
+    match_catalogs(
+        tilename=tilename,
+        bands=[b for b in bands],
+        output_desdata=output_desdata,
+        config=config)
+
+
 @cli.command()
 @click.option('--tilename', type=str, required=True,
               help='the coadd tile to simulate')
