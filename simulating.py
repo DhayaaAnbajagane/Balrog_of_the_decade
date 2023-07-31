@@ -168,18 +168,22 @@ class End2EndSimulation(object):
             else:
                 star_src_func = None
 
-            jobs.append(joblib.delayed(_render_se_image)(
-                se_info=se_info,
-                band=band,
-                galaxy_truth_cat=self.galaxy_truth_catalog,
-                star_truth_cat=self.star_truth_catalog,
-                bounds_buffer_uv=self.bounds_buffer_uv,
-                draw_method=self.draw_method,
-                noise_seed=noise_seed,
-                output_meds_dir=self.output_meds_dir,
-                galaxy_src_func=galaxy_src_func,
-                star_src_func = star_src_func,
-                gal_kws = self.gal_kws))
+            if self.gal_kws.get('galaxies', True):
+                jobs.append(joblib.delayed(_render_se_image)(
+                    se_info=se_info,
+                    band=band,
+                    galaxy_truth_cat=self.galaxy_truth_catalog,
+                    star_truth_cat=self.star_truth_catalog,
+                    bounds_buffer_uv=self.bounds_buffer_uv,
+                    draw_method=self.draw_method,
+                    noise_seed=noise_seed,
+                    output_meds_dir=self.output_meds_dir,
+                    galaxy_src_func=galaxy_src_func,
+                    star_src_func = star_src_func,
+                    gal_kws = self.gal_kws))
+            else:
+                print("NO GALAXY SIMULATED")
+                jobs.append(joblib.delayed(_move_se_img_wgt_bkg)(se_info=se_info, output_meds_dir=self.output_meds_dir))
 
         with joblib.Parallel(
                 n_jobs=-1, backend='loky', verbose=50, max_nbytes=None) as p:
@@ -594,6 +598,34 @@ def _write_se_img_wgt_bkg(
             # open in read-write mode and replace the data
             with fitsio.FITS(sf.path, mode='rw') as fits:
                 fits[se_info['bkg_ext']].write(background)
+                
+
+def _move_se_img_wgt_bkg(*, se_info, output_meds_dir):
+    '''
+    Use this for blank image run where we do no source injection
+    '''
+    
+    # these should be the same
+    assert se_info['image_path'] == se_info['weight_path'], se_info
+    assert se_info['image_path'] == se_info['bmask_path'], se_info
+
+    # and not this
+    assert se_info['image_path'] != se_info['bkg_path']
+
+    # get the final image file path and write
+    image_file = se_info['image_path'].replace(TMP_DIR, output_meds_dir)
+    make_dirs_for_file(image_file)
+    
+    with tempfile.TemporaryDirectory() as tmpdir:
+        with StagedOutFile(image_file, tmpdir=tmpdir) as sf:
+            shutil.copy(expand_path(se_info['image_path']), sf.path)
+
+    # get the background file path and write
+    bkg_file = se_info['bkg_path'].replace(TMP_DIR, output_meds_dir)
+    make_dirs_for_file(bkg_file)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        with StagedOutFile(bkg_file, tmpdir=tmpdir) as sf:
+            shutil.copy(expand_path(se_info['bkg_path']), sf.path)
 
 
 class LazySourceCat(object):
