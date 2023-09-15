@@ -17,13 +17,14 @@ from files import (
     get_truth_catalog_path,
     expand_path)
 from constants import MEDSCONF, R_SFD98
-from truthing import make_coadd_grid_radec, make_coadd_random_radec
+from truthing import make_coadd_grid_radec, make_coadd_random_radec, make_coadd_hexgrid_radec
 from sky_bounding import get_rough_sky_bounds, radec_to_uv
 from wcsing import get_esutil_wcs, get_galsim_wcs
 from galsiming import render_sources_for_image, Our_params
 from psf_wrapper import PSFWrapper
 from realistic_galaxying import init_desdf_catalog, get_desdf_galaxy
 from realistic_starsing import init_lsst_starsim_catalog
+from coadding import MakeSwarpCoadds
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +112,9 @@ class End2EndSimulation(object):
 
         logger.info(' simulating coadd tile %s', self.tilename)
 
+        # step 0 - Make coadd nwgint images
+        self.info = MakeSwarpCoadds(tilename =  self.tilename, bands =  self.bands, output_meds_dir = self.output_meds_dir, config = np.NaN, n_files = None)._make_nwgint_files()
+        
         # step 1 - Load simulated galaxy catalog if needed
         self.galaxy_simulated_catalog = self._make_sim_catalog()
         
@@ -254,25 +258,80 @@ class End2EndSimulation(object):
         n_gal  = n_grid**2
             
         #Set what type of grid we use
-        if self.gal_kws['truth_type'] in ['grid', 'grid-truedet']:
+        if self.gal_kws['truth_type'] in ['hexgrid', 'hexgrid-truedet']:
+            ra, dec, x, y = make_coadd_hexgrid_radec(radius = self.gal_kws['size_max'],
+                rng=self.truth_cat_rng, coadd_wcs=coadd_wcs,
+                return_xy=True)
+            
+        elif self.gal_kws['truth_type'] in ['grid', 'grid-truedet']:
             ra, dec, x, y = make_coadd_grid_radec(
                 rng=self.truth_cat_rng, coadd_wcs=coadd_wcs,
                 return_xy=True, n_grid=n_grid)
             
         else:
-            raise ValueError("Invalid option for `truth_type`. Use 'grid', 'random', 'grid-truedet', or 'random-truedet'.")
+            raise ValueError("Invalid option for `truth_type`. Use 'hexgrid', 'grid', 'random', 'grid-truedet', or 'random-truedet'.")
             
-        dtype = [('number', 'i8'), ('ind', 'i8'), ('ra',  'f8'), ('dec', 'f8'), ('x', 'f8'), ('y', 'f8'),
+        dtype = [('number', 'i8'), ('ID', 'i8'), ('ind', 'i8'), ('inj_class', 'i4'), 
+                 ('ra',  'f8'), ('dec', 'f8'), ('x', 'f8'), ('y', 'f8'),
                  ('a_world', 'f8'), ('b_world', 'f8'), ('size', 'f8')]
         for b in self.bands:
             dtype += [('A%s'%b, 'f8')]
             
-        truth_cat = np.zeros(len(ra), dtype = dtype)
+        truth_cat = np.zeros(len(ra), dtype = dtype)# + np.NaN
+        
+        
+        #Use i-band as reference magnitude
+        mag_ref = 30 - 2.5*np.log10(self.simulated_catalog.cat['FLUX_I'])
+        
+        # A value of 23.0 returns something similar to Balrog Y3
+        # A value of 23.5 maybe is similar to the WL sample in Y6.
+        # A value of 21.5 is maybe optimal for LSS samples in Y6.
+        
+        all_rand_inds = self.galsource_rng.randint(low=0, high=len(self.simulated_catalog.cat), size=len(ra))
+        wl_rand_inds  = mock_balrog_sigmoid(mag_ref, 23.5, self.galsource_rng)
+        
+        #Loop until you get enough high-z galaxies
+        #Just a safety loop so code doesn't fail because we
+        #somehow selected too few galaxies.
+        while True:
+            wl_HQz_inds   = mock_balrog_sigmoid(mag_ref, 23.5, self.galsource_rng)
+            wl_HQz_inds   = wl_HQz_inds[self.simulated_catalog.cat['Z_SOURCE'][wl_HQz_inds] != 0] #Select only indices with high-redshifts
+            
+            #Z_SOURCE HAS FOLLOWING INDICES
+            # Z_SOURCE = 0 --- "NO REDSHIFT"
+            # Z_SOURCE = 1 --- "SPEC-Z"
+            # Z_SOURCE = 2 --- "COSMOS2020"
+            # Z_SOURCE = 3 --- "PAUS+COSMOS"
+            # Z_SOURCE = 4 ---  "C3R2"
+
+            #If we have enough then break out
+            if len(wl_HQz_inds) > len(ra)//4: 
+                print("I HAVE ENOUGH HIGHQ GALAXIES. BREAKING OUT NOW")
+                break
+        
+        
+        inds = np.zeros_like(all_rand_inds)
+        
+        quarter = len(ra)//4 #Number of gals that make one quarter of required galaxies
+        
+        #First 1/2 is random balrog
+        inds[:2*quarter] = all_rand_inds[:2*quarter];  truth_cat['inj_class'][:2*quarter] = 0;
+        
+        #Next 1/4 is random WL specific
+        inds[2*quarter:3*quarter] = wl_rand_inds[:quarter]; truth_cat['inj_class'][2*quarter:3*quarter] = 1;
+        
+        #Final 1/4 is WL with high quality redshift data
+        inds[3*quarter:4*quarter] = wl_HQz_inds[:quarter]; truth_cat['inj_class'][3*quarter:4*quarter] = 2;
+        
+        
+        truth_cat['ind']    = inds
         truth_cat['number'] = np.arange(len(ra)).astype(np.int64) + 1
         truth_cat['ra']  = ra
         truth_cat['dec'] = dec
         truth_cat['x'] = x
         truth_cat['y'] = y
+        
+        truth_cat['ID'] = self.simulated_catalog.cat['ID'][truth_cat['ind']]
         
         if self.gal_kws['extinction'] == True:
             
@@ -287,10 +346,9 @@ class End2EndSimulation(object):
         g2 = self.simulated_catalog.cat['BDF_G2'][truth_cat['ind']]
         q  = np.sqrt(g1**2 + g2**2)
 
-        truth_cat['ind']     = self.galsource_rng.randint(low=0, high=len(self.simulated_catalog.cat), size=len(ra))
         truth_cat['a_world'] = 1
         truth_cat['b_world'] = q
-        truth_cat['size']    = self.simulated_catalog.cat['BDF_HLR'][truth_cat['ind']]
+        truth_cat['size']    = np.sqrt(self.simulated_catalog.cat['BDF_T'][truth_cat['ind']])
             
 
         truth_cat_path = get_truth_catalog_path(
@@ -310,7 +368,7 @@ class End2EndSimulation(object):
         self.simulated_catalog = init_desdf_catalog(rng = self.galsource_rng)
             
         mag_i = 30 - 2.5*np.log10(self.simulated_catalog.cat['FLUX_I'])
-        hlr   = self.simulated_catalog.cat['BDF_HLR']
+        hlr   = np.sqrt(self.simulated_catalog.cat['BDF_T']) #This is only approximate
         Mask  = ((mag_i > self.gal_kws['mag_min']) &  (mag_i < self.gal_kws['mag_max']) &
                  (hlr > self.gal_kws['size_min'])  &  (hlr < self.gal_kws['size_max'])
                 )
@@ -550,36 +608,44 @@ def _add_noise_mask_background(*, image, se_info, noise_seed, gal_kws):
     image /= se_info['scale']
 
     # take the original image and add the simulated + original images together
-    original_image = fitsio.read(se_info['image_path'], ext=se_info['image_ext'])
+    original_image = fitsio.read(se_info['nwgint_path'], ext=se_info['image_ext'])
     image += original_image
 
     # now just read out these other images
     # in practice we just read out --> copy to other location
     # since balrog does not use wgt and bmask
     bkg   = fitsio.read(se_info['bkg_path'], ext=se_info['bkg_ext'])
-    wgt   = fitsio.read(se_info['weight_path'], ext=se_info['weight_ext'])
-    bmask = fitsio.read(se_info['bmask_path'], ext=se_info['bmask_ext'])
+#     wgt   = fitsio.read(se_info['weight_path'], ext=se_info['weight_ext'])
+#     bmask = fitsio.read(se_info['bmask_path'], ext=se_info['bmask_ext'])
+
+
+    wgt   = fitsio.read(se_info['nwgint_path'], ext=se_info['weight_ext'])
+    bmask = fitsio.read(se_info['nwgint_path'], ext=se_info['bmask_ext'])
     
     return image, wgt, bkg, bmask
 
 
 def _write_se_img_wgt_bkg(
         *, image, weight, background, bmask, se_info, output_meds_dir):
-    # these should be the same
-    assert se_info['image_path'] == se_info['weight_path'], se_info
-    assert se_info['image_path'] == se_info['bmask_path'], se_info
+    
+    
+#     # these should be the same
+#     assert se_info['image_path'] == se_info['weight_path'], se_info
+#     assert se_info['image_path'] == se_info['bmask_path'], se_info
 
-    # and not this
-    assert se_info['image_path'] != se_info['bkg_path']
+#     # and not this
+#     assert se_info['image_path'] != se_info['bkg_path']
+    
+    
 
     # get the final image file path and write
-    image_file = se_info['image_path'].replace(TMP_DIR, output_meds_dir)
+    image_file = se_info['nwgint_path'].replace(TMP_DIR, output_meds_dir)
     make_dirs_for_file(image_file)
     
     with tempfile.TemporaryDirectory() as tmpdir:
         with StagedOutFile(image_file, tmpdir=tmpdir) as sf:
             # copy to the place we stage from
-            shutil.copy(expand_path(se_info['image_path']), sf.path)
+            shutil.copy(expand_path(se_info['nwgint_path']), sf.path)
 
             # open in read-write mode and replace the data
             with fitsio.FITS(sf.path, mode='rw') as fits:
@@ -604,6 +670,10 @@ def _move_se_img_wgt_bkg(*, se_info, output_meds_dir):
     '''
     Use this for blank image run where we do no source injection
     '''
+    return None
+
+    #Since nullweight is anyway made and transferred I dont think
+    #we need any of this anymore
     
     # these should be the same
     assert se_info['image_path'] == se_info['weight_path'], se_info
@@ -751,3 +821,32 @@ class LazyStarSourceCat(object):
         obj = self.psf.getPSF(image_pos = pos).withFlux(normalized_flux)
         
         return obj, pos
+
+    
+
+def mock_balrog_sigmoid(mag_ref, sigmoid_x0, rng):
+    """
+    
+    Function for selecting deep field galaxies at a rate that follows a sigmoid function that smoothly transitions from 1 for bright objects, to a value of 0 for faint objects. 
+    Parameters
+    ----------
+    deep_data : pandas dataframe
+        Pandas dataframe containing the deep field data.
+    sigmoid_x0 : float
+        Magnitude value at which the sigmoid function transitions from 1 to 0.
+    N : int
+        Number of galaxies to be drawn.
+    ref_mag_col : string
+        Column name of the reference magnitude in deep_data
+    Returns
+    -------
+    deep_balrog_selection : pandas dataframe
+        Pandas dataframe containing a list of N deep field objects to be injected by Balrog.
+    """
+
+    weights = 1.0 - 1.0 / (1.0 + np.exp(-4.0 * (mag_ref - sigmoid_x0)))
+    weights /= np.sum(weights) #Need to normalize ourselves since numpy choice doesn't do this
+
+    inds = rng.choice(len(mag_ref), len(mag_ref), p = weights, replace = True)
+    
+    return inds

@@ -39,7 +39,7 @@ class MakeSwarpCoadds(object):
     
     def run(self):
         
-        self._make_nwgint_files()
+#         self._make_nwgint_files() #We don't need to do this since it happens at start of pipeline
         self._make_filelists()
         self._make_coadds()
         self._make_detection_coadd()
@@ -69,7 +69,7 @@ class MakeSwarpCoadds(object):
             
             for src in self.info[band]['src_info']:
                 
-                args['IMAGE_PATH'] = src['image_path'].replace(TMP_DIR, self.output_meds_dir)
+                args['IMAGE_PATH'] = src['image_path']#.replace(TMP_DIR, self.output_meds_dir) #Taking raw image first so don't need this
                 args['HEAD_PATH']  = src['head_path']
                 args['OUT_PATH']   = os.path.join(out_basepath, src['filename'].replace('immasked', 'nwgint'))
                 
@@ -113,7 +113,8 @@ class MakeSwarpCoadds(object):
                 os.system(pix_command)
                
         
-        return 1
+        return self.info
+    
         
     def _make_filelists(self):
         '''
@@ -121,6 +122,17 @@ class MakeSwarpCoadds(object):
         where each line is filename/location. Will pass this into swarp.
         '''
         
+        #First figure out where the coadd nwgint images where written to
+        for band in self.bands:
+            
+            #Get base output and make dirs if needed
+            out_basepath = get_nwgint_path(meds_dir = self.output_meds_dir, medsconf = MEDSCONF, band = band)
+            
+            for src in self.info[band]['src_info']:
+                
+                OUT_PATH = os.path.join(out_basepath, src['filename'].replace('immasked', 'nwgint'))
+                src['nwgint_path'] = OUT_PATH
+                
         
         for band in self.bands:
             
@@ -434,4 +446,5 @@ class MakeSwarpCoadds(object):
             
             for src in self.info[band]['src_info']:
                 
-                os.system("rm -v %s" % src['nwgint_path'])
+                pass
+#                 os.system("rm -v %s" % src['nwgint_path'])

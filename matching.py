@@ -16,7 +16,7 @@ def match_catalogs(tilename, bands, output_desdata, config):
     Input_catalog = fitsio.read(os.environ['CATDESDF_PATH'], ext = 1)
     
     mag_i = 30 - 2.5*np.log10(Input_catalog['FLUX_I'])
-    hlr   = Input_catalog['BDF_HLR']
+    hlr   = np.sqrt(Input_catalog['BDF_T']) #this is only approximate
     Mask  = ((mag_i > config['gal_kws']['mag_min']) &  (mag_i < config['gal_kws']['mag_max']) &
              (hlr > config['gal_kws']['size_min'])  &  (hlr < config['gal_kws']['size_max']))
 
@@ -41,7 +41,7 @@ def match_catalogs(tilename, bands, output_desdata, config):
     
     SrcExt_r = Bcat[0] #use just r-band for getting position + ID (This is same in all bands). This needs to be new SrcExt cat
     Mcal_ID  = mcal['id']
-    RA, DEC  = SrcExt_r['ALPHA_J2000'], SrcExt_r['DELTA_J2000']
+    RA, DEC  = SrcExt_r['ALPHAWIN_J2000'], SrcExt_r['DELTAWIN_J2000']
     number   = SrcExt_r['NUMBER']
     
     #Match metacal with source extractor (needed to get ra/dec)
@@ -56,21 +56,38 @@ def match_catalogs(tilename, bands, output_desdata, config):
     
     #Keep only ids below 0.5 arcsec
     Mask = d < 0.5
-    j    = j[Mask] 
+    j    = j[Mask]
     Nobj = len(Mask)
+    
+    
+    
+    #STEP 2: Take old, original SrcExtractor, for each truth object ask how close a nearby object is.
+    tree = BallTree(np.vstack([Ocat[0]['DELTAWIN_J2000'], Ocat[0]['ALPHAWIN_J2000']]).T * np.pi/180, leaf_size=2, metric="haversine")
+    d2, j2 = tree.query(np.vstack([Truth['dec'], Truth['ra']]).T * np.pi/180)
+
+    d2, j2 = d2[:, 0], j2[:, 0] #convert to 1d array
+    d2     = d2 * 180/np.pi * 60*60 #convert to arcsec
+    
+    
+    #STEP 3: Construct the catalog
         
     #declare type of the output array
-    dtype  = np.dtype([('coadd_object_id', 'i4'),  ('Truth_ind','>u4'), 
+    dtype  = np.dtype([('ID', 'i8'),  ('Truth_ind','>u4'), 
                        ('ra', '>f4'),('dec', '>f4'),('true_ra', '>f4'), ('true_dec', '>f4'), 
                        ('true_FLUX_r','>f4'),('true_FLUX_i','>f4'),('true_FLUX_z','>f4'), 
                        ('FLUX_r','>f4'),     ('FLUX_i','>f4'),     ('FLUX_z','>f4'), 
                        ('FLUX_r_ERR','>f4'), ('FLUX_i_ERR','>f4'), ('FLUX_z_ERR','>f4'),
+                       ('IMAFLAGS_r','>f4'), ('IMAFLAGS_i','>f4'), ('IMAFLAGS_z','>f4'),
                        ('Ar','>f4'), ('Ai','>f4'), ('Az','>f4'),
-                       ('d_arcsec','>f4'), ('detected', '?')])
+                       ('d_arcsec','>f4'), ('detected', '?'), ('d_contam_arcsec', '>f4')])
     
     output = np.zeros(Nobj, dtype = dtype)
     
-    output['coadd_object_id'] = Input_catalog['COADD_OBJECT_ID'][Truth['ind']]
+    assert np.all(Truth['ID'] == Input_catalog['ID'][Truth['ind']]), "Something went wrong in matching"
+    
+    output['ID'] = Truth['ID']    
+    
+    output['inj_class'] = Truth['inj_class']
     
     output['Truth_ind'] = Truth['ind']
     output['true_ra']   = Truth['ra']
@@ -78,6 +95,8 @@ def match_catalogs(tilename, bands, output_desdata, config):
     output['d_arcsec']  = d
     
     output['detected']  = Mask
+    
+    output['d_contam_arcsec'] = d2
     
     output['true_FLUX_r'] = Input_catalog['FLUX_R'][Truth['ind']]
     output['true_FLUX_i'] = Input_catalog['FLUX_I'][Truth['ind']]
@@ -93,6 +112,10 @@ def match_catalogs(tilename, bands, output_desdata, config):
     output['FLUX_r_ERR'][Mask] = np.sqrt(mcal['mcal_flux_cov_noshear'][j, 0, 0])
     output['FLUX_i_ERR'][Mask] = np.sqrt(mcal['mcal_flux_cov_noshear'][j, 1, 1])
     output['FLUX_z_ERR'][Mask] = np.sqrt(mcal['mcal_flux_cov_noshear'][j, 2, 2])
+    
+    output['FLAGS_r'][Mask] = Bcat[0]['FLAGS'][inds][j]
+    output['FLAGS_i'][Mask] = Bcat[1]['FLAGS'][inds][j]
+    output['FLAGS_z'][Mask] = Bcat[2]['FLAGS'][inds][j]
     
     
     #Write non-detection rows with NaNs
