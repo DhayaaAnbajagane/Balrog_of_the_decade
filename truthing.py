@@ -78,6 +78,17 @@ def make_coadd_hexgrid_radec(*, radius, coadd_wcs, rng, return_xy=False):
     #Hardcoded coadd image sizes for DELVE
     startx, starty = 0, 0
     endx, endy = 10_000, 10_000
+    
+    #Put in buffer so we don't inject gals near the edge
+    #20 arcsec is 76 pix, so rounding to 100
+    
+    buffer = 100
+    
+    startx += buffer
+    starty += buffer
+    
+    endx -= buffer
+    endy -= buffer
 
     while startx < endx:
         x = [startx, startx, startx + r, startx + dx, startx + dx, startx + r, startx + r]
@@ -112,7 +123,7 @@ def make_coadd_hexgrid_radec(*, radius, coadd_wcs, rng, return_xy=False):
     if return_xy:
         return ra, dec, x, y
     else:
-        return ra, dec
+        return ra, dec 
 
 
 

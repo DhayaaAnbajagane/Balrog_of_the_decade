@@ -82,7 +82,7 @@ class End2EndSimulation(object):
         if self.psf_kws['type'] == 'psfex':
             self.draw_method = 'no_pixel'
         else:
-            self.draw_method = 'auto'
+            self.draw_method = 'phot'
 
         # make the RNGS. Extra initial seeds in case we need even more multiple random generators in future
         seeds = np.random.RandomState(seed=seed).randint(low=1, high=2**30, size=10)
@@ -199,38 +199,16 @@ class End2EndSimulation(object):
 
         if self.psf_kws['type'] == 'gauss':
             psf_model = galsim.Gaussian(fwhm=0.9)
-        
-        #elif self.psf_kws['type'] == 'piff':
-        #    from ..des_piff import DES_Piff
-        #    psf_model = DES_Piff(expand_path(se_info['piff_path']))
-        #    assert self.draw_method == 'auto'
-        
-        elif self.psf_kws['type'] == 'gauss-pix':
-            from gauss_pix_psf import GaussPixPSF
-            kwargs = {k: self.psf_kws[k] for k in self.psf_kws if k != 'type'}
-            psf_model = GaussPixPSF(**kwargs)
-            assert self.draw_method == 'auto'
-        
-        elif self.psf_kws['type'] == 'nongauss-pix':
-            from nongauss_pix_psf import NonGaussPixPSF
-            kwargs = {k: self.psf_kws[k] for k in self.psf_kws if k != 'type'}
-            psf_model = NonGaussPixPSF(**kwargs)
-            assert self.draw_method == 'auto'
 
         elif self.psf_kws['type'] == 'psfex':
             from galsim.des import DES_PSFEx
             psf_model = DES_PSFEx(expand_path(se_info['psfex_path']), wcs = wcs) #Need to pass wcs when reading file
-            assert self.draw_method == 'no_pixel'
+            assert self.draw_method == 'phot'
         
-        elif self.psf_kws['type'] == 'des_psfex':
-            from des_psfex import DES_PSFEx_Deconv
-            psf_model = DES_PSFEx_Deconv(expand_path(se_info['psfex_path']), wcs = wcs) #Need to pass wcs when reading file
-            assert self.draw_method == 'auto' #Don't need no_pixel since psf already deconvolved
-            
         elif self.psf_kws['type'] == 'psfex_deconvolved':
             from psfex_deconvolved import PSFEx_Deconv
             psf_model = PSFEx_Deconv(expand_path(se_info['psfex_path']), wcs = wcs) #Need to pass wcs when reading file
-            assert self.draw_method == 'auto' #Don't need no_pixel since psf already deconvolved
+            assert self.draw_method == 'phot' #Don't need no_pixel since psf already deconvolved
         
         else:
             raise ValueError(
@@ -256,10 +234,11 @@ class End2EndSimulation(object):
 
         n_grid = self.gal_kws['n_grid']
         n_gal  = n_grid**2
-            
+        
+        radius = self.gal_kws['size_max']/0.263 #Radius of largest galaxy in pixel units
         #Set what type of grid we use
         if self.gal_kws['truth_type'] in ['hexgrid', 'hexgrid-truedet']:
-            ra, dec, x, y = make_coadd_hexgrid_radec(radius = self.gal_kws['size_max'],
+            ra, dec, x, y = make_coadd_hexgrid_radec(radius = radius,
                 rng=self.truth_cat_rng, coadd_wcs=coadd_wcs,
                 return_xy=True)
             
@@ -271,6 +250,19 @@ class End2EndSimulation(object):
         else:
             raise ValueError("Invalid option for `truth_type`. Use 'hexgrid', 'grid', 'random', 'grid-truedet', or 'random-truedet'.")
             
+        #Get rid of galaxies in the masks.
+        bit_mask = fitsio.read(self.info[band]['bmask_path'],  ext = self.info[band]['bmask_ext'])
+        wgt      = fitsio.read(self.info[band]['weight_path'], ext = self.info[band]['weight_ext'])
+        
+        gal_mask = bit_mask[y.astype(int), x.astype(int)] == 0 #only select objects whose centers are unmasked
+        gal_mask = gal_mask & (wgt[y.astype(int), x.astype(int)] != 0) #Do same thing but for wgt != 0 (nwgint sets wgt == 0 in some places)
+        
+        ra, dec = ra[gal_mask], dec[gal_mask]
+        x,  y   = x[gal_mask],  y[gal_mask]
+        
+        print("TRUTH CATALOG HAS %d OBJECTS" % len(x))
+        
+        
         dtype = [('number', 'i8'), ('ID', 'i8'), ('ind', 'i8'), ('inj_class', 'i4'), 
                  ('ra',  'f8'), ('dec', 'f8'), ('x', 'f8'), ('y', 'f8'),
                  ('a_world', 'f8'), ('b_world', 'f8'), ('size', 'f8')]
@@ -760,7 +752,10 @@ class LazySourceCat(object):
         psf = self.psf.getPSF(image_pos=pos)
         obj = galsim.Convolve([obj, psf], gsparams = Our_params)
         
-        return obj, pos
+        #For doing photon counting, need to do some silly work
+        rng = galsim.BaseDeviate(self.galsource_rng.randint(0, 2**32))
+        
+        return (obj, rng), pos
     
     
 class LazyStarSourceCat(object):

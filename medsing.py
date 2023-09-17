@@ -16,7 +16,7 @@ from constants import MAGZP_REF, MEDSCONF
 from psf_wrapper import PSFWrapper
 from wcsing import get_galsim_wcs
 from files import (
-    get_band_info_file, get_meds_file_path, expand_path, make_dirs_for_file)
+    get_band_info_file, get_meds_file_path, expand_path, make_dirs_for_file, get_nwgint_path)
 
 logger = logging.getLogger(__name__)
 
@@ -59,9 +59,20 @@ def make_meds_files(*, tilename, bands, output_meds_dir, psf_kws, meds_config):
             band=band)
         with open(fname, 'r') as fp:
             info[band] = yaml.load(fp, Loader=yaml.Loader)
+            
+            #Get base output and make dirs if needed
+            out_basepath = get_nwgint_path(meds_dir = output_meds_dir, medsconf = MEDSCONF, band = band)
+
+            #Force meds to use coadd null-weight-interpolated (nwgint) images as inputs for cutouts
+            for src in info[band]['src_info']:
+
+                OUT_PATH = os.path.join(out_basepath, src['filename'].replace('immasked', 'nwgint'))
+                src['image_path']  = OUT_PATH
+                src['weight_path'] = OUT_PATH
+                src['bmask_path']  = OUT_PATH
+                    
             print(info[band]['image_path'])
-            #for k in info[band].keys():
-            #    print(k, info[band][k])
+        
     # always get the truth catalog from r band
     cat = fitsio.read(info['r']['cat_path'].replace(
         TMP_DIR, output_meds_dir))

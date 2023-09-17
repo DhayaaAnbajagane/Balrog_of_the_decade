@@ -72,14 +72,14 @@ def match_catalogs(tilename, bands, output_desdata, config):
     #STEP 3: Construct the catalog
         
     #declare type of the output array
-    dtype  = np.dtype([('ID', 'i8'),  ('Truth_ind','>u4'), 
+    dtype  = np.dtype([('ID', 'i8'),  ('Truth_ind','>u4'), ('inj_class', 'i4'),
                        ('ra', '>f4'),('dec', '>f4'),('true_ra', '>f4'), ('true_dec', '>f4'), 
                        ('true_FLUX_r','>f4'),('true_FLUX_i','>f4'),('true_FLUX_z','>f4'), 
                        ('FLUX_r','>f4'),     ('FLUX_i','>f4'),     ('FLUX_z','>f4'), 
                        ('FLUX_r_ERR','>f4'), ('FLUX_i_ERR','>f4'), ('FLUX_z_ERR','>f4'),
                        ('IMAFLAGS_r','>f4'), ('IMAFLAGS_i','>f4'), ('IMAFLAGS_z','>f4'),
                        ('Ar','>f4'), ('Ai','>f4'), ('Az','>f4'),
-                       ('d_arcsec','>f4'), ('detected', '?'), ('d_contam_arcsec', '>f4')])
+                       ('d_arcsec','>f4'), ('detected', 'i4'), ('d_contam_arcsec', '>f4')])
     
     output = np.zeros(Nobj, dtype = dtype)
     
@@ -94,7 +94,7 @@ def match_catalogs(tilename, bands, output_desdata, config):
     output['true_dec']  = Truth['dec']
     output['d_arcsec']  = d
     
-    output['detected']  = Mask
+    output['detected']  = Mask.astype(int)
     
     output['d_contam_arcsec'] = d2
     
@@ -113,10 +113,9 @@ def match_catalogs(tilename, bands, output_desdata, config):
     output['FLUX_i_ERR'][Mask] = np.sqrt(mcal['mcal_flux_cov_noshear'][j, 1, 1])
     output['FLUX_z_ERR'][Mask] = np.sqrt(mcal['mcal_flux_cov_noshear'][j, 2, 2])
     
-    output['FLAGS_r'][Mask] = Bcat[0]['FLAGS'][inds][j]
-    output['FLAGS_i'][Mask] = Bcat[1]['FLAGS'][inds][j]
-    output['FLAGS_z'][Mask] = Bcat[2]['FLAGS'][inds][j]
-    
+    output['IMAFLAGS_r'][Mask] = Bcat[0]['FLAGS'][inds][j]
+    output['IMAFLAGS_i'][Mask] = Bcat[1]['FLAGS'][inds][j]
+    output['IMAFLAGS_z'][Mask] = Bcat[2]['FLAGS'][inds][j]
     
     #Write non-detection rows with NaNs
     output['ra'][np.invert(Mask)]  = np.NaN

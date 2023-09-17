@@ -106,6 +106,12 @@ def render_source_in_image(*, source, image_pos, local_wcs, draw_method):
     stamp : galsim.ImageD
         The rendered object in the stamp.
     """
+    
+    #This is hacky way but easiest way to get this to work.
+    #The source function also provides the rng to draw the photon noise
+    #of the galaxy.
+    source, BaseDeviate = source
+        
     # pre-draw to get size
     _im = source.drawImage(
         wcs=local_wcs,
@@ -128,12 +134,12 @@ def render_source_in_image(*, source, image_pos, local_wcs, draw_method):
     dy = image_pos.y - (y_ll + (_im.shape[0] - 1)/2)
 
     # draw for real
-    stamp = source.drawImage(
-        nx=_im.shape[1],
-        ny=_im.shape[0],
-        wcs=local_wcs,
-        method=draw_method,
-        offset=galsim.PositionD(x=dx, y=dy))
+    if draw_method == 'phot':
+        stamp = source.drawImage(nx=_im.shape[1], ny=_im.shape[0], wcs=local_wcs, 
+                                 method=draw_method, offset=galsim.PositionD(x=dx, y=dy), rng = BaseDeviate)
+    else:
+        stamp = source.drawImage(nx=_im.shape[1], ny=_im.shape[0], wcs=local_wcs, 
+                                 method=draw_method, offset=galsim.PositionD(x=dx, y=dy))
     stamp.setOrigin(x_ll, y_ll)
 
     return stamp

@@ -55,5 +55,15 @@ class PSFEx_Deconv(object):
         deconvolution_kernel = galsim.Deconvolve(pixel) #Create kernel to deconvolve pixel window
         
         psf = galsim.Convolve([psf, deconvolution_kernel]).withFlux(1.0) #Deconvolve
+        
+        # nice and big image size here cause this has been a problem
+        image = galsim.ImageD(ncol=19, nrow=19, wcs=wcs)
+
+        #Writing image out and making it an interpolated one.
+        #Need to do this because we use a deconvolution step in psf making
+        #and can't do photon shooting draw method if deconvolve exists.
+        #So making raw image + interpolating to remove deconvolve state of galsim.
+        psf = psf.drawImage(image=image)
+        psf = galsim.InterpolatedImage(galsim.ImageD(psf.array), wcs=wcs, x_interpolant=x_interpolant)
 
         return psf

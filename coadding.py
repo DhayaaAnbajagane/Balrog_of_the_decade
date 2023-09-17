@@ -238,7 +238,7 @@ class MakeSwarpCoadds(object):
                                         -IMAGEOUT_NAME %(out_prefix)s_sci.fits \
                                         -COMBINE_TYPE WEIGHTED \
                                         -WEIGHT_IMAGE @%(list_prefix)s_swarp-%(band)s-wgt-wgt.list \
-                                        -NTHREADS 8 \
+                                        -NTHREADS 28 \
                                         -RESAMPLE_DIR %(out_dir)s \
                                         -BLANK_BADPIXELS Y" % args
             
@@ -254,7 +254,7 @@ class MakeSwarpCoadds(object):
                                         -IMAGEOUT_NAME %(out_prefix)s_tmp-sci.fits \
                                         -COMBINE_TYPE WEIGHTED \
                                         -WEIGHT_IMAGE @%(list_prefix)s_swarp-%(band)s-msk-wgt.list \
-                                        -NTHREADS 8 \
+                                        -NTHREADS 28 \
                                         -RESAMPLE_DIR %(out_dir)s \
                                         -BLANK_BADPIXELS Y" % args
             
@@ -363,7 +363,7 @@ class MakeSwarpCoadds(object):
                                     -IMAGEOUT_NAME %(out_prefix)s/%(TILENAME)s_det_sci.fits  \
                                     -COMBINE_TYPE AVERAGE \
                                     -WEIGHT_IMAGE %(wgt_paths)s  \
-                                    -NTHREADS 8  \
+                                    -NTHREADS 28  \
                                     -RESAMPLE_DIR %(out_prefix)s \
                                     -BLANK_BADPIXELS Y" % args
         
@@ -379,7 +379,7 @@ class MakeSwarpCoadds(object):
                                     -IMAGEOUT_NAME %(out_prefix)s/%(TILENAME)s_det_tmpsci.fits  \
                                     -COMBINE_TYPE AVERAGE \
                                     -WEIGHT_IMAGE %(msk_paths)s  \
-                                    -NTHREADS 8  \
+                                    -NTHREADS 28  \
                                     -RESAMPLE_DIR %(out_prefix)s \
                                     -BLANK_BADPIXELS Y" % args
         
