@@ -235,7 +235,7 @@ class End2EndSimulation(object):
         n_grid = self.gal_kws['n_grid']
         n_gal  = n_grid**2
         
-        radius = self.gal_kws['size_max']/0.263 #Radius of largest galaxy in pixel units
+        radius = 2*self.gal_kws['size_max']/0.263 #Radius of largest galaxy in pixel units. Factor of 2 to prevent overlap
         #Set what type of grid we use
         if self.gal_kws['truth_type'] in ['hexgrid', 'hexgrid-truedet']:
             ra, dec, x, y = make_coadd_hexgrid_radec(radius = radius,
@@ -250,15 +250,17 @@ class End2EndSimulation(object):
         else:
             raise ValueError("Invalid option for `truth_type`. Use 'hexgrid', 'grid', 'random', 'grid-truedet', or 'random-truedet'.")
             
-        #Get rid of galaxies in the masks.
-        bit_mask = fitsio.read(self.info[band]['bmask_path'],  ext = self.info[band]['bmask_ext'])
-        wgt      = fitsio.read(self.info[band]['weight_path'], ext = self.info[band]['weight_ext'])
-        
-        gal_mask = bit_mask[y.astype(int), x.astype(int)] == 0 #only select objects whose centers are unmasked
-        gal_mask = gal_mask & (wgt[y.astype(int), x.astype(int)] != 0) #Do same thing but for wgt != 0 (nwgint sets wgt == 0 in some places)
-        
-        ra, dec = ra[gal_mask], dec[gal_mask]
-        x,  y   = x[gal_mask],  y[gal_mask]
+        if self.gal_kws.get('AvoidMaskedPix', True):
+            
+            #Get rid of galaxies in the masks.
+            bit_mask = fitsio.read(self.info[band]['bmask_path'],  ext = self.info[band]['bmask_ext'])
+            wgt      = fitsio.read(self.info[band]['weight_path'], ext = self.info[band]['weight_ext'])
+
+            gal_mask = bit_mask[y.astype(int), x.astype(int)] == 0 #only select objects whose centers are unmasked
+            gal_mask = gal_mask & (wgt[y.astype(int), x.astype(int)] != 0) #Do same thing but for wgt != 0 (nwgint sets wgt == 0 in some places)
+
+            ra, dec = ra[gal_mask], dec[gal_mask]
+            x,  y   = x[gal_mask],  y[gal_mask]
         
         print("TRUTH CATALOG HAS %d OBJECTS" % len(x))
         
@@ -316,6 +318,12 @@ class End2EndSimulation(object):
         inds[3*quarter:4*quarter] = wl_HQz_inds[:quarter]; truth_cat['inj_class'][3*quarter:4*quarter] = 2;
         
         
+        #Now just randomly shuffle the inds. The ra/dec are in a uniform order.
+        #If you don't shuffle inds then galaxies on one side of image will be 1/2 balrog
+        #and remaining would be WL specific. We don't want that
+        self.galsource_rng.shuffle(inds)
+        
+        #Now build truth catalog
         truth_cat['ind']    = inds
         truth_cat['number'] = np.arange(len(ra)).astype(np.int64) + 1
         truth_cat['ra']  = ra
@@ -342,7 +350,6 @@ class End2EndSimulation(object):
         truth_cat['b_world'] = q
         truth_cat['size']    = np.sqrt(self.simulated_catalog.cat['BDF_T'][truth_cat['ind']])
             
-
         truth_cat_path = get_truth_catalog_path(
             meds_dir=self.output_meds_dir,
             medsconf=MEDSCONF,
@@ -662,11 +669,12 @@ def _move_se_img_wgt_bkg(*, se_info, output_meds_dir):
     '''
     Use this for blank image run where we do no source injection
     '''
-    return None
+
 
     #Since nullweight is anyway made and transferred I dont think
     #we need any of this anymore
     
+    '''
     # these should be the same
     assert se_info['image_path'] == se_info['weight_path'], se_info
     assert se_info['image_path'] == se_info['bmask_path'], se_info
@@ -681,7 +689,9 @@ def _move_se_img_wgt_bkg(*, se_info, output_meds_dir):
     with tempfile.TemporaryDirectory() as tmpdir:
         with StagedOutFile(image_file, tmpdir=tmpdir) as sf:
             shutil.copy(expand_path(se_info['image_path']), sf.path)
-
+    
+    '''
+    
     # get the background file path and write
     bkg_file = se_info['bkg_path'].replace(TMP_DIR, output_meds_dir)
     make_dirs_for_file(bkg_file)
