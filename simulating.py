@@ -304,24 +304,30 @@ class End2EndSimulation(object):
                 break
         
         
-        inds = np.zeros_like(all_rand_inds)
+        inds = np.zeros_like(all_rand_inds) #Array to hold deep field index of galaxy
+        cls  = np.zeros_like(all_rand_inds) #Array to hold injection class
         
         quarter = len(ra)//4 #Number of gals that make one quarter of required galaxies
         
         #First 1/2 is random balrog
-        inds[:2*quarter] = all_rand_inds[:2*quarter];  truth_cat['inj_class'][:2*quarter] = 0;
+        inds[:2*quarter] = all_rand_inds[:2*quarter];  cls[:2*quarter] = 0;
         
         #Next 1/4 is random WL specific
-        inds[2*quarter:3*quarter] = wl_rand_inds[:quarter]; truth_cat['inj_class'][2*quarter:3*quarter] = 1;
+        inds[2*quarter:3*quarter] = wl_rand_inds[:quarter]; cls[2*quarter:3*quarter] = 1;
         
         #Final 1/4 is WL with high quality redshift data
-        inds[3*quarter:4*quarter] = wl_HQz_inds[:quarter]; truth_cat['inj_class'][3*quarter:4*quarter] = 2;
+        inds[3*quarter:4*quarter] = wl_HQz_inds[:quarter]; cls[3*quarter:4*quarter] = 2;
         
         
         #Now just randomly shuffle the inds. The ra/dec are in a uniform order.
         #If you don't shuffle inds then galaxies on one side of image will be 1/2 balrog
         #and remaining would be WL specific. We don't want that
-        self.galsource_rng.shuffle(inds)
+        shuffle_inds = np.arange(len(inds))
+        self.galsource_rng.shuffle(shuffle_inds)
+        
+        inds = inds[shuffle_inds]
+        truth_cat['inj_class'] = cls[shuffle_inds]
+        
         
         #Now build truth catalog
         truth_cat['ind']    = inds
@@ -606,9 +612,11 @@ def _add_noise_mask_background(*, image, se_info, noise_seed, gal_kws):
     # first back to ADU units
     image /= se_info['scale']
 
-    # take the original image and add the simulated + original images together
-    original_image = fitsio.read(se_info['nwgint_path'], ext=se_info['image_ext'])
-    image += original_image
+    #If we want Blank image, then we can't add original image
+    if not gal_kws.get('BlankImage', False):
+        # take the original image and add the simulated + original images together
+        original_image = fitsio.read(se_info['nwgint_path'], ext=se_info['image_ext'])
+        image += original_image
 
     # now just read out these other images
     # in practice we just read out --> copy to other location

@@ -38,17 +38,9 @@ def match_catalogs(tilename, bands, output_desdata, config):
     Truth = fitsio.read(Truth_path, ext = 1)
     Ocat  = [fitsio.read(i, ext = 1) for i in OCat_path]
     Bcat  = [fitsio.read(i, ext = 1) for i in BCat_path]
-    
-    SrcExt_r = Bcat[0] #use just r-band for getting position + ID (This is same in all bands). This needs to be new SrcExt cat
-    Mcal_ID  = mcal['id']
-    RA, DEC  = SrcExt_r['ALPHAWIN_J2000'], SrcExt_r['DELTAWIN_J2000']
-    number   = SrcExt_r['NUMBER']
-    
-    #Match metacal with source extractor (needed to get ra/dec)
-    inds = np.intersect1d(number, Mcal_ID, return_indices = True)[1]
-    
-    #STEP 1: match SrcExtractor objects with injected objects
-    tree = BallTree(np.vstack([DEC[inds], RA[inds]]).T * np.pi/180, leaf_size=2, metric="haversine")
+        
+    #STEP 1: match SrcExtractor objects with injected objects. Bcat[0] is r-band
+    tree = BallTree(np.vstack([Bcat[0]['DELTAWIN_J2000'], Bcat[0]['ALPHAWIN_J2000']]).T * np.pi/180, leaf_size=40, metric="haversine")
     d, j = tree.query(np.vstack([Truth['dec'], Truth['ra']]).T * np.pi/180)
 
     d, j = d[:, 0], j[:, 0] #convert to 1d array
@@ -61,8 +53,33 @@ def match_catalogs(tilename, bands, output_desdata, config):
     
     
     
+    
+    mcal_flux     = np.zeros([len(j), 3]) + np.NaN
+    mcal_flux_cov = np.zeros([len(j), 3, 3]) + np.NaN
+    mcal_badfrac  = np.zeros(len(j)) + np.NaN
+    
+    for b_i in tqdm(range(len(j)), desc = 'MATCHING SRCEX to MCAL'):
+        
+        #Pick SrcExt id and find corresponding mcal id in array
+        b_num = Bcat[0]['NUMBER'][j[b_i]]
+        m_ind = np.where(b_num == mcal['id'])[0]
+        
+        #If we find a match then we take the quantities we need.
+        #Also possible to not find a match (eg, if object doesnt have
+        #riz band coverage).
+        if len(m_ind) == 1:
+            
+            mcal_flux[b_i]     = mcal['mcal_flux_noshear'][m_ind]
+            mcal_flux_cov[b_i] = mcal['mcal_flux_cov_noshear'][m_ind]
+            mcal_badfrac[b_i]  = mcal['badfrac'][m_ind]
+            
+        else:
+            continue
+            #print("NO MATCH AT IND = ", j[b_i])
+            
+    
     #STEP 2: Take old, original SrcExtractor, for each truth object ask how close a nearby object is.
-    tree = BallTree(np.vstack([Ocat[0]['DELTAWIN_J2000'], Ocat[0]['ALPHAWIN_J2000']]).T * np.pi/180, leaf_size=2, metric="haversine")
+    tree   = BallTree(np.vstack([Ocat[0]['DELTAWIN_J2000'], Ocat[0]['ALPHAWIN_J2000']]).T * np.pi/180, leaf_size=40, metric="haversine")
     d2, j2 = tree.query(np.vstack([Truth['dec'], Truth['ra']]).T * np.pi/180)
 
     d2, j2 = d2[:, 0], j2[:, 0] #convert to 1d array
@@ -73,12 +90,13 @@ def match_catalogs(tilename, bands, output_desdata, config):
         
     #declare type of the output array
     dtype  = np.dtype([('ID', 'i8'),  ('Truth_ind','>u4'), ('inj_class', 'i4'),
-                       ('ra', '>f4'),('dec', '>f4'),('true_ra', '>f4'), ('true_dec', '>f4'), 
-                       ('true_FLUX_r','>f4'),('true_FLUX_i','>f4'),('true_FLUX_z','>f4'), 
-                       ('FLUX_r','>f4'),     ('FLUX_i','>f4'),     ('FLUX_z','>f4'), 
-                       ('FLUX_r_ERR','>f4'), ('FLUX_i_ERR','>f4'), ('FLUX_z_ERR','>f4'),
+                       ('ra', '>f4'), ('dec', '>f4'), ('true_ra', '>f4'), ('true_dec', '>f4'), 
+                       ('true_FLUX_r','>f4'),     ('true_FLUX_i','>f4'),     ('true_FLUX_z','>f4'), 
+                       ('mcal_FLUX_r','>f4'),     ('mcal_FLUX_i','>f4'),     ('mcal_FLUX_z','>f4'), 
+                       ('mcal_FLUX_r_ERR','>f4'), ('mcal_FLUX_i_ERR','>f4'), ('mcal_FLUX_z_ERR','>f4'),
                        ('IMAFLAGS_r','>f4'), ('IMAFLAGS_i','>f4'), ('IMAFLAGS_z','>f4'),
                        ('Ar','>f4'), ('Ai','>f4'), ('Az','>f4'),
+                       ('badfrac', '>f4'),
                        ('d_arcsec','>f4'), ('detected', 'i4'), ('d_contam_arcsec', '>f4')])
     
     output = np.zeros(Nobj, dtype = dtype)
@@ -102,31 +120,35 @@ def match_catalogs(tilename, bands, output_desdata, config):
     output['true_FLUX_i'] = Input_catalog['FLUX_I'][Truth['ind']]
     output['true_FLUX_z'] = Input_catalog['FLUX_Z'][Truth['ind']]
     
-    output['ra'][Mask]  = RA[inds][j]
-    output['dec'][Mask] = DEC[inds][j]
+    output['ra'][Mask]  = Bcat[0]['ALPHAWIN_J2000'][j]
+    output['dec'][Mask] = Bcat[0]['DELTAWIN_J2000'][j]
     
-    output['FLUX_r'][Mask] = mcal['mcal_flux_noshear'][j, 0]
-    output['FLUX_i'][Mask] = mcal['mcal_flux_noshear'][j, 1]
-    output['FLUX_z'][Mask] = mcal['mcal_flux_noshear'][j, 2]
+    output['mcal_FLUX_r'][Mask] = mcal_flux[:, 0] #mcal['mcal_flux_noshear'][mcal_inds, 0]
+    output['mcal_FLUX_i'][Mask] = mcal_flux[:, 1] #mcal['mcal_flux_noshear'][mcal_inds, 1]
+    output['mcal_FLUX_z'][Mask] = mcal_flux[:, 2] #mcal['mcal_flux_noshear'][mcal_inds, 2]
     
-    output['FLUX_r_ERR'][Mask] = np.sqrt(mcal['mcal_flux_cov_noshear'][j, 0, 0])
-    output['FLUX_i_ERR'][Mask] = np.sqrt(mcal['mcal_flux_cov_noshear'][j, 1, 1])
-    output['FLUX_z_ERR'][Mask] = np.sqrt(mcal['mcal_flux_cov_noshear'][j, 2, 2])
+    output['mcal_FLUX_r_ERR'][Mask] = np.sqrt(mcal_flux_cov[:, 0, 0])
+    output['mcal_FLUX_i_ERR'][Mask] = np.sqrt(mcal_flux_cov[:, 1, 1])
+    output['mcal_FLUX_z_ERR'][Mask] = np.sqrt(mcal_flux_cov[:, 2, 2])
     
-    output['IMAFLAGS_r'][Mask] = Bcat[0]['FLAGS'][inds][j]
-    output['IMAFLAGS_i'][Mask] = Bcat[1]['FLAGS'][inds][j]
-    output['IMAFLAGS_z'][Mask] = Bcat[2]['FLAGS'][inds][j]
+    output['badfrac'][Mask]    = mcal_badfrac
+    
+    output['IMAFLAGS_r'][Mask] = Bcat[0]['FLAGS'][j]
+    output['IMAFLAGS_i'][Mask] = Bcat[1]['FLAGS'][j]
+    output['IMAFLAGS_z'][Mask] = Bcat[2]['FLAGS'][j]
     
     #Write non-detection rows with NaNs
     output['ra'][np.invert(Mask)]  = np.NaN
     output['dec'][np.invert(Mask)] = np.NaN
     
-    output['FLUX_r'][np.invert(Mask)] = np.NaN
-    output['FLUX_i'][np.invert(Mask)] = np.NaN
-    output['FLUX_z'][np.invert(Mask)] = np.NaN
+    output['mcal_FLUX_r'][np.invert(Mask)] = np.NaN
+    output['mcal_FLUX_i'][np.invert(Mask)] = np.NaN
+    output['mcal_FLUX_z'][np.invert(Mask)] = np.NaN
     
-    output['FLUX_r_ERR'][np.invert(Mask)] = np.NaN
-    output['FLUX_i_ERR'][np.invert(Mask)] = np.NaN
-    output['FLUX_z_ERR'][np.invert(Mask)] = np.NaN
+    output['mcal_FLUX_r_ERR'][np.invert(Mask)] = np.NaN
+    output['mcal_FLUX_i_ERR'][np.invert(Mask)] = np.NaN
+    output['mcal_FLUX_z_ERR'][np.invert(Mask)] = np.NaN
+    
+    output['badfrac'][np.invert(Mask)] = np.NaN
     
     fitsio.write(brog_path, output)

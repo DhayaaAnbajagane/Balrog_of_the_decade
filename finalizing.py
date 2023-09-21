@@ -138,7 +138,7 @@ def cleanup_tmpdir_files(tile, output_desdata):
     
     file  = os.environ['BALROG_DIR'] + "/%(name)s/metacal_%(tile)s.fits" % args
 
-    if os.path.isfile(plus) :
+    if os.path.isfile(file):
         file_paths = os.environ['PREP_DIR'] + "/%(name)s/*%(tile)s*" % args
         os.system("rm -rv %s" % file_paths)
 
