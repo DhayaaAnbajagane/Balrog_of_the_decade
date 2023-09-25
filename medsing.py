@@ -107,42 +107,46 @@ def make_meds_files(*, tilename, bands, output_meds_dir, psf_kws, meds_config):
         counter = 0
         while not os.path.isfile(final_meds_file):
             
-            # make the file in a tmp dir and then stage out
-            maker = MEDSMaker(
-                obj_data,
-                image_info,
-                psf_data=psf_data,
-                config=meds_config,
-                meta_data=meta_data)
+            try:
+                # make the file in a tmp dir and then stage out
+                maker = MEDSMaker(
+                    obj_data,
+                    image_info,
+                    psf_data=psf_data,
+                    config=meds_config,
+                    meta_data=meta_data)
 
-            final_meds_file = get_meds_file_path(
-                meds_dir=output_meds_dir,
-                medsconf=MEDSCONF,
-                tilename=tilename,
-                band=band)
-            make_dirs_for_file(final_meds_file)
+                final_meds_file = get_meds_file_path(
+                    meds_dir=output_meds_dir,
+                    medsconf=MEDSCONF,
+                    tilename=tilename,
+                    band=band)
+                make_dirs_for_file(final_meds_file)
 
-            with tempfile.TemporaryDirectory() as tmpdir:
-                with StagedOutFile(final_meds_file, tmpdir=tmpdir) as sf:
-                    uncompressed_file = sf.path.replace('.fits.fz', '.fits')
-                    make_dirs_for_file(uncompressed_file)
-                    maker.write(uncompressed_file)
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    with StagedOutFile(final_meds_file, tmpdir=tmpdir) as sf:
+                        uncompressed_file = sf.path.replace('.fits.fz', '.fits')
+                        make_dirs_for_file(uncompressed_file)
+                        maker.write(uncompressed_file)
 
-                    # make sure to remove the destination file when fpacking
-                    try:
-                        os.remove(sf.path)
-                    except Exception:
-                        pass
-                    desmeds.util.fpack_file(uncompressed_file)
-                    try:
-                        os.remove(uncompressed_file)
-                    except Exception:
-                        pass
+                        # make sure to remove the destination file when fpacking
+                        try:
+                            os.remove(sf.path)
+                        except Exception:
+                            pass
+                        desmeds.util.fpack_file(uncompressed_file)
+                        try:
+                            os.remove(uncompressed_file)
+                        except Exception:
+                            pass
                     
-                    
+            
+            except:
+                print("MEDS FAILED. RETRYING")
+
             counter += 1
             
-            if counter > 10:
+            if counter > 5:
                 print("COULD NOT MAKE MEDS AFTER 10 TRIES.....")
                 break
 
