@@ -11,17 +11,22 @@ from constants import MEDSCONF
 
 
 def finalize_files(tilename, bands, output_desdata, config):
-    
-    for b in bands:
-        move_SrcExtractor_cat(tilename, b, output_desdata)
-        move_OldSrcExtractor_cat(tilename, b, output_desdata)
-        if config['files']['save_meds'] == True: 
-            move_meds(tilename, b, output_desdata)
+   
+    try: 
+        for b in bands:
+            move_SrcExtractor_cat(tilename, b, output_desdata)
+            move_OldSrcExtractor_cat(tilename, b, output_desdata)
+            if config['files']['save_meds'] == True: 
+                move_meds(tilename, b, output_desdata)
         
-    move_metacal_cat(tilename, output_desdata)
-    move_balrog_cat(tilename, output_desdata)
-    move_Truth_cat(tilename, output_desdata)
+        move_metacal_cat(tilename, output_desdata)
+        move_balrog_cat(tilename, output_desdata)
+        move_Truth_cat(tilename, output_desdata)
     
+    except:
+        
+        print("SOMETHING CRASHED. SIGH")
+
     if config['files']['clean_tmpdir'] == True:
         cleanup_tmpdir_files(tilename, output_desdata)
         
