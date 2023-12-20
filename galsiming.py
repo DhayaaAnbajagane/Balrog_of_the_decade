@@ -135,8 +135,22 @@ def render_source_in_image(*, source, image_pos, local_wcs, draw_method):
 
     # draw for real
     if draw_method == 'phot':
-        stamp = source.drawImage(nx=_im.shape[1], ny=_im.shape[0], wcs=local_wcs, 
-                                 method=draw_method, offset=galsim.PositionD(x=dx, y=dy), rng = BaseDeviate)
+        
+        success = False
+        tries   = 0
+        while success == False:
+            
+            try:
+                stamp = source.drawImage(nx=_im.shape[1], ny=_im.shape[0], wcs=local_wcs, 
+                                         method=draw_method, offset=galsim.PositionD(x=dx, y=dy), rng = BaseDeviate)
+                success = True
+            except:
+                tries += 1
+                print("FAILED ON GALAXY (%d TIMES). RETRYING..." % tries)
+                if tries > 20: 
+                    print("FAILED ON GALAXY (%d TIMES). BREAKING" % tries)
+                    break
+                    
     else:
         stamp = source.drawImage(nx=_im.shape[1], ny=_im.shape[0], wcs=local_wcs, 
                                  method=draw_method, offset=galsim.PositionD(x=dx, y=dy))

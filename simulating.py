@@ -189,8 +189,8 @@ class End2EndSimulation(object):
                 print("NO GALAXY SIMULATED")
                 jobs.append(joblib.delayed(_move_se_img_wgt_bkg)(se_info=se_info, output_meds_dir=self.output_meds_dir))
 
-        with joblib.Parallel(
-                n_jobs=-1, backend='loky', verbose=50, max_nbytes=None) as p:
+        #For some reason, using all cpus is causing out-of-memory errors....
+        with joblib.Parallel(n_jobs = os.cpu_count()//4, backend='loky', verbose=50, max_nbytes=None) as p:
             p(jobs)
 
     def _make_psf_wrapper(self, *, se_info):
