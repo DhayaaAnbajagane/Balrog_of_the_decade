@@ -190,7 +190,7 @@ if __name__ == "__main__":
     config   = yaml.load(open(os.path.dirname(__file__) + '/config.yaml', 'r'), Loader=yaml.Loader)
     print('GETTING BALROG FILES FROM:', PATH)
     
-    files = sorted(glob.glob(PATH + '/balrog*'))
+    files = sorted(glob.glob(PATH + '/balrog*')) + sorted(glob.glob('/project2/chihway/dhayaa/DECADE/Balrog/v09_DR3_2/balrog*'))
     tiles = [f[-17:-5] for f in files] #Tilenames
     
     FINAL_CAT = [None] * len(files)
@@ -218,7 +218,7 @@ if __name__ == "__main__":
     tilenames = np.concatenate(tilenames, axis = 0)
     
     # BITMASK = hp.read_map('/project/chihway/dhayaa/DECADE/Gold_Foreground_20230607.fits')
-    BITMASK = hp.read_map('/project/chihway/dhayaa/DECADE/Foreground_Masks/GOLD_Ext0.2_Star5_MCs2.fits')
+    BITMASK = hp.read_map('/project/chihway/dhayaa/DECADE/Foreground_Masks/GOLD_Ext0.2_Star5_MCs2_DESY6.fits')
     bmask   = BITMASK[hp.ang2pix(hp.npix2nside(BITMASK.size), FINAL_CAT['true_ra'], FINAL_CAT['true_dec'], lonlat = True)]
 
     with h5py.File(PATH + '/BalrogOfTheDECADE_Catalog.hdf5', 'w') as f:
